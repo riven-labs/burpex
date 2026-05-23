@@ -4,6 +4,16 @@ on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to build and release (e.g. v0.2.0). Must already exist.'
+        required: true
+        type: string
+      prerelease:
+        description: 'Mark this release as a pre-release'
+        required: false
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -12,8 +22,30 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  resolve:
+    name: resolve tag
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.pick.outputs.tag }}
+      prerelease: ${{ steps.pick.outputs.prerelease }}
+    steps:
+      - id: pick
+        shell: bash
+        run: |
+          if [ -n "${{ inputs.tag }}" ]; then
+            TAG="${{ inputs.tag }}"
+            PRE="${{ inputs.prerelease }}"
+          else
+            TAG="${GITHUB_REF#refs/tags/}"
+            PRE="true"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$PRE" >> "$GITHUB_OUTPUT"
+          echo "Building release for tag: $TAG (prerelease=$PRE)"
+
   build:
     name: build (${{ matrix.target }})
+    needs: resolve
     strategy:
       fail-fast: false
       matrix:
@@ -37,7 +69,10 @@ jobs:
 
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve.outputs.tag }}
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -81,10 +116,13 @@ jobs:
 
   publish:
     name: publish release
-    needs: build
+    needs: [resolve, build]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve.outputs.tag }}
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -97,16 +135,17 @@ jobs:
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
-          files: artifacts/**/*
+          tag_name: ${{ needs.resolve.outputs.tag }}
+          name: ${{ needs.resolve.outputs.tag }}
+          prerelease: ${{ needs.resolve.outputs.prerelease == 'true' }}
           generate_release_notes: true
-          prerelease: true
+          files: artifacts/**/*
           body: |
-            ## Pre-release build
-
-            This is ongoing reverse-engineering work — Burp's project format is
-            undocumented and large parts of it still aren't typed. The pieces
-            that *do* decode (HTTP transactions, scan issues, scope, file
-            layout) are usable. See the README for the current state.
+            Ongoing reverse-engineering work — Burp's project format is
+            undocumented and large parts of it still aren't typed. The
+            pieces that *do* decode (HTTP transactions, scan issues,
+            scope, file layout) are usable. See the README for the
+            current state.
 
             Builds attached for Linux x86_64, macOS x86_64, macOS aarch64,
             and Windows x86_64. Verify the SHA-256 yourself if you care.
