@@ -1,0 +1,29 @@
+[package]
+name = "burpex"
+version = "0.1.0"
+edition = "2021"
+description = "Pull everything useful out of a Burp Suite project file into JSON."
+license = "MIT"
+
+[[bin]]
+name = "burpex"
+path = "src/main.rs"
+
+[lib]
+name = "burpex"
+path = "src/lib.rs"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+memmap2 = "0.9"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+flate2 = "1"
+brotli = "8"
+base64 = "0.22"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

@@ -1,0 +1,112 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: build (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            archive: tar.gz
+            asset: burpex-linux-x86_64
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            archive: tar.gz
+            asset: burpex-macos-x86_64
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            archive: tar.gz
+            asset: burpex-macos-aarch64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            archive: zip
+            asset: burpex-windows-x86_64
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Build release binary
+        run: cargo build --release --target ${{ matrix.target }} --bin burpex
+
+      - name: Package (unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          mkdir staging
+          cp target/${{ matrix.target }}/release/burpex staging/
+          cp README.md LICENSE staging/
+          tar -czf ${{ matrix.asset }}.tar.gz -C staging .
+
+      - name: Package (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory staging | Out-Null
+          Copy-Item target/${{ matrix.target }}/release/burpex.exe staging/
+          Copy-Item README.md, LICENSE staging/
+          Compress-Archive -Path staging/* -DestinationPath ${{ matrix.asset }}.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: |
+            ${{ matrix.asset }}.tar.gz
+            ${{ matrix.asset }}.zip
+          if-no-files-found: ignore
+
+  publish:
+    name: publish release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: List artifacts
+        run: find artifacts -type f
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*
+          generate_release_notes: true
+          prerelease: true
+          body: |
+            ## Pre-release build
+
+            This is ongoing reverse-engineering work — Burp's project format is
+            undocumented and large parts of it still aren't typed. The pieces
+            that *do* decode (HTTP transactions, scan issues, scope, file
+            layout) are usable. See the README for the current state.
+
+            Builds attached for Linux x86_64, macOS x86_64, macOS aarch64,
+            and Windows x86_64. Verify the SHA-256 yourself if you care.

@@ -1,0 +1,17 @@
+/target
+**/*.rs.bk
+Cargo.lock.bak
+
+# build / test scratch
+*.burp
+*.jsonl
+_*.json
+_*.jsonl
+*.tmp
+
+# editor / OS
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
